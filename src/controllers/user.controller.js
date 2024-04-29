@@ -4,6 +4,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { User } from "../models/user.models.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -92,7 +93,7 @@ const registerUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, createdUser, "User registered Successfully"));
 });
 
-const loginUser = async (req, res) => {
+const loginUser = asyncHandler(async (req, res) => {
   // get email and password
   // compare with stored data
   // generate access token and refresh token
@@ -140,14 +141,14 @@ const loginUser = async (req, res) => {
         "User logged In Successfully"
       )
     );
-};
+});
 
 const logOutUser = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
     req.user._id,
     {
-      $set: {
-        refreshToken: undefined,
+      $unset: {
+        refreshToken: 1,
       },
     },
     {
@@ -162,32 +163,32 @@ const logOutUser = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .clearCookie("accessToken")
-    .clearCookie("refreshToken")
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged out successfully"));
 });
 
-const refreshAccessToken = async (req, res) => {
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  const incomingRefreshToken =
+    req.cookies.refreshToken || req.body.refreshToken;
+
+  if (!incomingRefreshToken) {
+    throw new ApiError(401, "Unauthorized request");
+  }
+
   try {
-    const incomingRefreshToken =
-      req.cookies.refreshToken || req.body.refreshToken;
-
-    if (!incomingRefreshToken) {
-      throw new ApiError(401, "Unauthorized request");
-    }
-
     const decodedToken = jwt.verify(
       incomingRefreshToken,
       process.env.REFRESH_TOKEN_SECRET
     );
 
-    const user = await User.findById(decodedToken?._id);
+    const user = await User.findById(decodedToken._id);
 
     if (!user) {
       throw new ApiError(401, "Invalid refresh token");
     }
 
-    if (incomingRefreshToken !== user?.refreshToken) {
+    if (incomingRefreshToken !== user.refreshToken) {
       throw new ApiError(401, "Refresh token is expired or used");
     }
 
@@ -213,9 +214,9 @@ const refreshAccessToken = async (req, res) => {
   } catch (error) {
     throw new ApiError(401, error?.message || "Invalid refresh token");
   }
-};
+});
 
-const changeCurrentPassword = async (req, res) => {
+const changeCurrentPassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
 
   // if (newPassword !== confirmPassword) {
@@ -235,12 +236,12 @@ const changeCurrentPassword = async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, {}, "Password change successfully"));
-};
+});
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   return res
     .status(200)
-    .json(200, req.user, "current user fetched successfully");
+    .json(new ApiResponse(200, req.user, "current user fetched successfully"));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
@@ -317,7 +318,7 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
 const getUserChannelProfile = asyncHandler(async (req, res) => {
   const { username } = req.params;
 
-  if (!username?.trime()) {
+  if (!username?.trim()) {
     throw new ApiError(400, "Username is missing");
   }
 
@@ -340,7 +341,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         from: "subscriptions",
         localField: "_id",
         foreignField: "subscriber",
-        as: "subscribeTo",
+        as: "subscribedTo",
       },
     },
     {
@@ -348,7 +349,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         subscribersCount: {
           $size: "$subscribers",
         },
-        channelsSubscribeToCount: {
+        channelSubscribeToCount: {
           $size: "$subscribedTo",
         },
         isSubscribed: {
@@ -366,7 +367,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         username: 1,
         email: 1,
         subscribersCount: 1,
-        channelsSubscribeToCount: 1,
+        channelSubscribeToCount: 1,
         isSubscribed: 1,
         avatar: 1,
         coverImage: 1,
@@ -391,7 +392,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
 const getWatchHistory = asyncHandler(async (req, res) => {
   const user = await User.aggregate([
     {
-      $method: {
+      $match: {
         _id: new mongoose.Types.ObjectId(req.user._id),
       },
     },
